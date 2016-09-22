@@ -1,0 +1,10 @@
+[package]
+name = "xlsx-read"
+version = "0.1.0"
+authors = ["Erik Svensson <erik.public@gmail.com>"]
+license = "MIT"
+
+[dependencies]
+error-chain = "0.5"
+zip = { version = "0.1.18", default-features = false }
+xml-rs = "0.3"
