@@ -7,6 +7,7 @@ extern crate xml;
 mod errors;
 
 use std::fs;
+use std::path::Path;
 use std::io::{Read, Seek, SeekFrom, Cursor};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -18,27 +19,27 @@ use errors::*;
 // Skip BOM marker
 fn skip_bom<R: Read + Seek>(reader: &mut R) -> Result<()> {
     let mut buffer = [0; 4];
-    try!(reader.seek(SeekFrom::Start(0)));
-    try!(reader.read(&mut buffer[..]));
+    reader.seek(SeekFrom::Start(0))?;
+    reader.read(&mut buffer[..])?;
     // UTF-8
     if buffer[0..3] == [0xef, 0xbb, 0xbf] {
-        try!(reader.seek(SeekFrom::Start(3)));
+        reader.seek(SeekFrom::Start(3))?;
     }
     // UTF-16BE
     else if buffer[0..2] == [0xfe, 0xff] {
-        try!(reader.seek(SeekFrom::Start(2)));
+        reader.seek(SeekFrom::Start(2))?;
     }
     // UTF-16LE
     else if buffer[0..2] == [0xff, 0xfe] {
-        try!(reader.seek(SeekFrom::Start(2)));
+        reader.seek(SeekFrom::Start(2))?;
     }
     // UTF-32BE
     else if buffer[0..4] == [0x00, 0x00, 0xfe, 0xff] {
-        try!(reader.seek(SeekFrom::Start(4)));
+        reader.seek(SeekFrom::Start(4))?;
     }
     // UTF-32LE
     else if buffer[0..4] == [0xff, 0xfe, 0x00, 0x00] {
-        try!(reader.seek(SeekFrom::Start(4)));
+        reader.seek(SeekFrom::Start(4))?;
     }
     Ok(())
 }
@@ -85,9 +86,9 @@ pub struct WorkBook {
 }
 
 impl WorkBook {
-    pub fn open(path: &str) -> Result<WorkBook> {
-        let file = try!(fs::File::open(&path));
-        let archive = try!(zip::ZipArchive::new(file));
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<WorkBook> {
+        let file = fs::File::open(path)?;
+        let archive = zip::ZipArchive::new(file)?;
         Ok(WorkBook {
             archive: archive,
             strings: vec![],
@@ -97,12 +98,12 @@ impl WorkBook {
     }
 
     fn load_xml(&mut self, name: &str) -> Result<EventReader<Cursor<Vec<u8>>>> {
-        let mut file = try!(self.archive.by_name(name));
+        let mut file = self.archive.by_name(name)?;
         // Unfortunaltely ZipFile does not support Seek and xml-rs does not support UTF BOM.
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
         let mut file = Cursor::new(buffer);
-        try!(skip_bom(&mut file));
+        skip_bom(&mut file)?;
         Ok(EventReader::new(file))
     }
 
@@ -147,12 +148,12 @@ impl WorkBook {
         for i in 0..self.archive.len() {
             let mut file_name = String::new();
             {
-                let file = try!(self.archive.by_index(i));
+                let file = self.archive.by_index(i)?;
                 file_name.push_str(file.name());
             }
             if file_name.ends_with(".rels") {
-                let reader = try!(self.load_xml(&file_name));
-                try!(self.load_relations(reader));
+                let reader = self.load_xml(&file_name)?;
+                self.load_relations(reader)?;
             }
         }
         Ok(())
@@ -167,7 +168,7 @@ impl WorkBook {
                 break;
             }
         }
-        let reader = try!(self.load_xml(&path));
+        let reader = self.load_xml(&path)?;
         let mut store = false;
         for ev in reader {
             match ev {
@@ -201,7 +202,7 @@ impl WorkBook {
                 break;
             }
         }
-        let reader = try!(self.load_xml(&path));
+        let reader = self.load_xml(&path)?;
         for ev in reader {
             match ev {
                 Ok(XmlEvent::StartElement {name, attributes, ..}) => {
@@ -247,7 +248,7 @@ impl WorkBook {
     pub fn load_worksheet(&mut self, name: &str) -> Result<WorkSheet> {
         let ref sheet_relation = self.sheets[name].relation.clone();
         let ref target = self.relations[sheet_relation].target.clone();
-        let reader = try!(self.load_xml(target));
+        let reader = self.load_xml(target)?;
         let mut row = 0usize;
         let mut column = 0usize;
         let mut kind = ValueType::String;
@@ -260,7 +261,7 @@ impl WorkBook {
                     if name.local_name == "row" {
                         for attribute in attributes.iter() {
                             if attribute.name.local_name == "r" {
-                                row = try!(usize::from_str(&attribute.value));
+                                row = usize::from_str(&attribute.value)?;
                             }
                         }
                         column = 0;
@@ -286,14 +287,14 @@ impl WorkBook {
                     if capture_value {
                         let value = match kind {
                             ValueType::String => {
-                                let index = try!(usize::from_str(&text));
+                                let index = usize::from_str(&text)?;
                                 Value::String(self.strings[index].clone())
                             },
                             ValueType::Number => {
                                 match i64::from_str(&text) {
                                     Ok(value) => { Value::Integer(value) }
                                     Err(_) => {
-                                        let value = try!(f64::from_str(&text));
+                                        let value = f64::from_str(&text)?;
                                         Value::Float(value)
                                     }
                                 }
@@ -312,9 +313,9 @@ impl WorkBook {
     }
 
     pub fn load(&mut self) -> Result<()> {
-        try!(self.load_relationships());
-        try!(self.load_workbook());
-        try!(self.load_shared_strings());
+        self.load_relationships()?;
+        self.load_workbook()?;
+        self.load_shared_strings()?;
         Ok(())
     }
 }
